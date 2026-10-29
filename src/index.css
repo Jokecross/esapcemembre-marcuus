@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-canvas text-ink font-body antialiased;
+    font-weight: 500;
+    line-height: 1.6;
+  }
+
+  h1, h2, h3 {
+    @apply font-title text-navy;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  ::selection {
+    @apply bg-accent text-on-accent;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-canvas;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-line bg-surface shadow-card;
+  }
+
+  /* Les cartes cliquables se soulèvent légèrement : c'est le seul indice
+     qui distingue un bloc décoratif d'un bloc sur lequel on peut appuyer. */
+  .card-link {
+    @apply card transition duration-200 hover:-translate-y-0.5 hover:border-accent/30 hover:shadow-lift;
+  }
+
+  /* Le bouton de la page de vente : dégradé vert, texte blanc, ombre verte. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3
+           font-body font-bold text-on-accent transition duration-150
+           disabled:cursor-not-allowed disabled:opacity-50;
+    background: linear-gradient(100deg, #1EC01E 0%, #0E9C0E 100%);
+    box-shadow: 0 10px 22px -10px rgba(30, 192, 30, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+  .btn:hover:not(:disabled) {
+    filter: brightness(1.05);
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(2px);
+    box-shadow: 0 4px 10px -6px rgba(30, 192, 30, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-line
+           bg-surface px-5 py-2.5 font-bold text-navy transition
+           hover:border-line-strong hover:bg-canvas;
+  }
+
+  .field {
+    @apply w-full rounded-xl border border-line bg-surface px-4 py-3 text-navy
+           transition placeholder:text-muted focus:border-accent focus:outline-none
+           focus:ring-4 focus:ring-accent/10;
+  }
+
+  .eyebrow {
+    @apply text-xs font-extrabold uppercase tracking-[0.16em] text-muted;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1
+           text-xs font-bold;
+  }
+  .pill-accent { @apply bg-accent-pastel text-accent; }
+  .pill-success { @apply bg-success-bg text-success; }
+  .pill-muted { @apply bg-canvas text-muted; }
+}
