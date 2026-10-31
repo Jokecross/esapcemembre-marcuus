@@ -20,6 +20,9 @@ export default function App() {
   // Confondre les deux fige la page sur l'écran de chargement.
   const [session, setSession] = useState(undefined)
   const [member, setMember] = useState(undefined)
+  // Closer de l'équipe Marcuus Lawrence : il n'a que la création de liens.
+  // undefined tant que la base n'a pas répondu.
+  const [vendeur, setVendeur] = useState(undefined)
   const etatWorkshop = useEtatWorkshop(!!member)
   // Le guide de bienvenue et le tour : une seule requête au chargement.
   const [guide, setGuide] = useState(null)
@@ -40,6 +43,12 @@ export default function App() {
       .maybeSingle()
       .then(({ data }) => setMember(data ?? null))
   }, [session])
+
+  useEffect(() => {
+    if (!member) return setVendeur(undefined)
+    if (member.role !== 'setter') return setVendeur(false)
+    supabase.rpc('est_vendeur').then(({ data, error }) => setVendeur(!error && data === true))
+  }, [member])
 
   // Le guide de bienvenue ne concerne que les nouveaux élèves : la base
   // répond « rien à faire » pour l'équipe et pour les comptes d'avant.
@@ -69,6 +78,21 @@ export default function App() {
   // Setters et administrateurs partagent le back-office ; ce qu'ils y
   // trouvent diffère, et c'est Admin.jsx qui en décide.
   const equipe = member.role === 'setter' || member.role === 'admin'
+
+  if (vendeur === undefined) return <Splash>Vérification de ton accès…</Splash>
+
+  // Le closer Marcuus : le back-office, et rien d'autre — ni accueil, ni
+  // workshop, ni outils, ni guide de bienvenue.
+  if (vendeur) {
+    return (
+      <Coquille member={member} equipe vendeur>
+        <Routes>
+          <Route path="/admin" element={<Admin role={member.role} vendeur />} />
+          <Route path="*" element={<Navigate to="/admin" replace />} />
+        </Routes>
+      </Coquille>
+    )
+  }
 
   // Tant que le guide n'est pas fini, l'espace reste derrière : visible,
   // mais flouté. Il montre ce qui attend l'élève sans lui laisser s'y

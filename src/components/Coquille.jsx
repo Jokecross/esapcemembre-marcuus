@@ -18,15 +18,17 @@ const ENTREES = [
   { to: '/outils', nom: 'ressources', libelle: 'Outils et ressources', court: 'Outils', tour: 'outils' },
 ]
 
-export default function Coquille({ member, equipe, etatWorkshop, children }) {
+export default function Coquille({ member, equipe, vendeur = false, etatWorkshop, children }) {
   const { pathname } = useLocation()
+  // Un closer Marcuus n'a que le back-office : aucune entrée élève.
+  const entrees = vendeur ? [] : ENTREES
   const actif = (to) => (to === '/' ? pathname === '/' || pathname.startsWith('/lecon') : pathname.startsWith(to))
 
   return (
     <div className="min-h-screen lg:flex">
       {/* ---------- Ordinateur : la barre latérale ---------- */}
       <aside className="hidden w-[248px] flex-none flex-col gap-6 border-r border-line bg-surface px-4 py-6 lg:flex">
-        <Link to="/" className="px-1.5">
+        <Link to={vendeur ? '/admin' : '/'} className="px-1.5">
           <span className="block font-title text-[17px] font-extrabold tracking-tight text-navy">
             {MARQUE}
           </span>
@@ -34,7 +36,7 @@ export default function Coquille({ member, equipe, etatWorkshop, children }) {
         </Link>
 
         <nav className="flex flex-col gap-1">
-          {ENTREES.map((e) => (
+          {entrees.map((e) => (
             <Link
               key={e.to}
               to={e.to}
@@ -98,21 +100,31 @@ export default function Coquille({ member, equipe, etatWorkshop, children }) {
       </aside>
 
       {/* ---------- Téléphone : l'en-tête compact ---------- */}
-      <div className="min-w-0 flex-1 pb-24 lg:pb-0">
+      <div className={`min-w-0 flex-1 lg:pb-0 ${vendeur ? 'pb-8' : 'pb-24'}`}>
         <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-line bg-canvas/90 px-4 py-3 backdrop-blur-md lg:hidden">
-          <Link to="/" className="font-title text-[15px] font-extrabold tracking-tight text-navy">
+          <Link to={vendeur ? '/admin' : '/'} className="font-title text-[15px] font-extrabold tracking-tight text-navy">
             {MARQUE} <span className="text-accent">{OFFRE}</span>
           </Link>
           <span className="ml-auto grid h-8 w-8 place-items-center rounded-full bg-accent-pastel font-title text-[11.5px] font-extrabold text-accent">
             {initiales(member)}
           </span>
+          {/* Sans barre d'onglets, la déconnexion passe dans l'en-tête. */}
+          {vendeur && (
+            <button
+              onClick={() => supabase.auth.signOut()}
+              title="Se déconnecter"
+              className="text-muted transition hover:text-navy"
+            >
+              <Icone nom="deconnexion" taille={20} />
+            </button>
+          )}
         </header>
 
         <main className="mx-auto max-w-[1040px] px-4 py-6 sm:px-6 lg:px-10 lg:py-9">{children}</main>
       </div>
 
       {/* ---------- Téléphone : la barre d'onglets ---------- */}
-      <nav className="fixed inset-x-0 bottom-0 z-50 flex border-t border-line bg-surface/95 px-1.5 pb-[18px] pt-0.5 backdrop-blur-md lg:hidden">
+      {!vendeur && <nav className="fixed inset-x-0 bottom-0 z-50 flex border-t border-line bg-surface/95 px-1.5 pb-[18px] pt-0.5 backdrop-blur-md lg:hidden">
         {ENTREES.map((e) => (
           <Link
             key={e.to}
@@ -126,7 +138,7 @@ export default function Coquille({ member, equipe, etatWorkshop, children }) {
             <span className="text-[10.5px] font-extrabold">{e.court}</span>
           </Link>
         ))}
-      </nav>
+      </nav>}
     </div>
   )
 }

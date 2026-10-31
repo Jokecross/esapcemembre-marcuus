@@ -22,7 +22,12 @@ const ONGLETS = [
   ['suivi',       'Suivi des élèves', true],
 ]
 
-export default function Admin({ role }) {
+export default function Admin({ role, vendeur = false }) {
+  // Closer Marcuus : le formulaire de vente et ses liens, sans onglets.
+  return vendeur ? <VenteInvitations /> : <BackOffice role={role} />
+}
+
+function BackOffice({ role }) {
   const admin = role === 'admin'
   const onglets = ONGLETS.filter(([, , pourSetter]) => admin || pourSetter)
   const [tab, setTab] = useState(onglets[0][0])
@@ -92,7 +97,7 @@ function Invitations({ admin }) {
       supabase.from('plans').select('code, label, rank').order('rank'),
       supabase
         .from('invites')
-        .select('token, plan_code, label, created_at, expires_at, used_at, created_by')
+        .select('token, plan_code, label, created_at, expires_at, used_at, created_by, client_email, client_telephone, facture_path')
         .order('created_at', { ascending: false })
         .limit(50),
     ])
@@ -181,6 +186,7 @@ function Invitations({ admin }) {
             <tr>
               <th className="px-5 py-3 font-extrabold">Pour</th>
               <th className="px-5 py-3 font-extrabold">Formule</th>
+              {admin && <th className="px-5 py-3 font-extrabold">Client</th>}
               {admin && <th className="px-5 py-3 font-extrabold">Par</th>}
               <th className="px-5 py-3 font-extrabold">État</th>
               <th className="px-5 py-3 font-extrabold">Lien</th>
@@ -193,6 +199,17 @@ function Invitations({ admin }) {
                 <tr key={i.token} className="border-b border-line last:border-0">
                   <td className="px-5 py-3 font-bold text-navy">{i.label || '—'}</td>
                   <td className="px-5 py-3">{i.plan_code}</td>
+                  {admin && (
+                    <td className="px-5 py-3 text-muted">
+                      {i.client_email || i.client_telephone ? (
+                        <>
+                          <span className="block">{i.client_email}</span>
+                          <span className="block">{i.client_telephone}</span>
+                        </>
+                      ) : '—'}
+                      {i.facture_path && <VoirFacture chemin={i.facture_path} />}
+                    </td>
+                  )}
                   {admin && (
                     <td className="px-5 py-3 text-muted">
                       {[equipe[i.created_by]?.first_name, equipe[i.created_by]?.last_name]
@@ -226,13 +243,266 @@ function Invitations({ admin }) {
             })}
             {!invites.length && (
               <tr>
-                <td colSpan={admin ? 5 : 4} className="px-5 py-6 text-center text-muted">
+                <td colSpan={admin ? 6 : 4} className="px-5 py-6 text-center text-muted">
                   Aucune invitation pour l'instant.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+      </div>
+    </>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Vente — le back-office des closers Marcuus                         */
+/* ------------------------------------------------------------------ */
+
+/* Ouvre la facture déposée par le closer, via un lien signé d'une minute. */
+function VoirFacture({ chemin }) {
+  async function ouvrir() {
+    const { data } = await supabase.storage.from('factures-clients').createSignedUrl(chemin, 60)
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank', 'noopener')
+  }
+  return (
+    <button type="button" onClick={ouvrir} className="mt-1 block font-bold text-accent hover:underline">
+      Voir la facture
+    </button>
+  )
+}
+
+const VIDE = { prenom: '', nom: '', email: '', telephone: '' }
+const emailValide = (v) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim())
+const telValide = (v) => v.replace(/\D/g, '').length >= 8
+
+/**
+ * Le closer ne génère un lien qu'une fois le client renseigné et la
+ * facture déposée. Le bouton reste grisé tant qu'il manque quelque chose,
+ * et la base refuse de toute façon une invitation incomplète.
+ */
+function VenteInvitations() {
+  const [plans, setPlans] = useState([])
+  const [invites, setInvites] = useState([])
+  const [plan, setPlan] = useState('')
+  const [client, setClient] = useState(VIDE)
+  const [facture, setFacture] = useState(null)
+  const [cleFichier, setCleFichier] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const [erreur, setErreur] = useState('')
+  const [nouveau, setNouveau] = useState(null)
+  const [copied, setCopied] = useState(null)
+
+  async function load() {
+    const { data: s } = await supabase.auth.getSession()
+    const [{ data: p }, { data: i }] = await Promise.all([
+      supabase.from('plans').select('code, label, rank').order('rank'),
+      supabase
+        .from('invites')
+        .select('token, plan_code, label, client_email, client_telephone, created_at, expires_at, used_at')
+        .eq('created_by', s.session.user.id)
+        .order('created_at', { ascending: false })
+        .limit(100),
+    ])
+    setPlans(p || [])
+    setInvites(i || [])
+    if (!plan && p?.length) setPlan(p[0].code)
+  }
+
+  useEffect(() => {
+    load()
+  }, [])
+
+  const champ = (cle) => ({
+    value: client[cle],
+    onChange: (e) => setClient({ ...client, [cle]: e.target.value }),
+  })
+
+  const manque = [
+    !client.prenom.trim() && 'le prénom',
+    !client.nom.trim() && 'le nom',
+    !emailValide(client.email) && "l'e-mail",
+    !telValide(client.telephone) && 'le téléphone',
+    !facture && 'la facture',
+    !plan && 'la formule',
+  ].filter(Boolean)
+  const pret = manque.length === 0
+
+  function choisirFacture(e) {
+    const f = e.target.files?.[0] || null
+    setErreur('')
+    if (f && f.size > 15 * 1024 * 1024) {
+      setErreur('La facture dépasse 15 Mo.')
+      setFacture(null)
+      setCleFichier((k) => k + 1)
+      return
+    }
+    setFacture(f)
+  }
+
+  async function creer(e) {
+    e.preventDefault()
+    if (!pret || busy) return
+    setBusy(true)
+    setErreur('')
+    try {
+      const { data: s } = await supabase.auth.getSession()
+      const uid = s.session.user.id
+      const ext = (facture.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '') || 'pdf'
+      const chemin = `${uid}/${crypto.randomUUID()}.${ext}`
+      const { error: eUp } = await supabase.storage
+        .from('factures-clients')
+        .upload(chemin, facture, { contentType: facture.type || undefined })
+      if (eUp) throw new Error("La facture n'a pas pu être envoyée : " + eUp.message)
+
+      const prenom = client.prenom.trim()
+      const nom = client.nom.trim()
+      const { data, error } = await supabase
+        .from('invites')
+        .insert({
+          plan_code: plan,
+          label: `${prenom} ${nom}`,
+          created_by: uid,
+          client_prenom: prenom,
+          client_nom: nom,
+          client_email: client.email.trim().toLowerCase(),
+          client_telephone: client.telephone.trim(),
+          facture_path: chemin,
+        })
+        .select('token')
+        .single()
+      if (error) throw new Error("Le lien n'a pas pu être créé : " + error.message)
+
+      setClient(VIDE)
+      setFacture(null)
+      setCleFichier((k) => k + 1)
+      setNouveau(data.token)
+      copy(data.token)
+      await load()
+    } catch (ex) {
+      setErreur(ex.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const linkFor = (token) => `${window.location.origin}/bienvenue/${token}`
+
+  function copy(token) {
+    navigator.clipboard?.writeText(linkFor(token))
+    setCopied(token)
+    setTimeout(() => setCopied(null), 2500)
+  }
+
+  const libellePlan = (code) => plans.find((p) => p.code === code)?.label || code
+
+  return (
+    <>
+      <h1 className="text-2xl">Back-office</h1>
+      <p className="mt-2 text-sm">
+        Renseigne le client, dépose la facture qu'il t'a envoyée pendant l'appel, puis génère
+        son lien d'accès.
+      </p>
+
+      <form onSubmit={creer} className="card mt-6 p-5 sm:p-6">
+        <h2 className="text-lg">Créer un lien d'invitation</h2>
+
+        <p className="eyebrow mt-5">1. Le client</p>
+        <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
+          <input className="field" placeholder="Prénom" autoComplete="off" {...champ('prenom')} />
+          <input className="field" placeholder="Nom" autoComplete="off" {...champ('nom')} />
+          <input className="field" type="email" inputMode="email" placeholder="E-mail" autoComplete="off" {...champ('email')} />
+          <input className="field" type="tel" inputMode="tel" placeholder="Téléphone" autoComplete="off" {...champ('telephone')} />
+        </div>
+
+        <p className="eyebrow mt-6">2. La facture</p>
+        <label
+          className={`mt-2.5 flex cursor-pointer items-center gap-3 rounded-xl border border-dashed px-4 py-3.5 text-sm transition ${
+            facture ? 'border-success bg-success-bg/60' : 'border-line-strong hover:bg-canvas'
+          }`}
+        >
+          <input
+            key={cleFichier}
+            type="file"
+            accept="application/pdf,image/*"
+            className="sr-only"
+            onChange={choisirFacture}
+          />
+          <span className={`font-bold ${facture ? 'text-success' : 'text-accent'}`}>
+            {facture ? '✓ Facture jointe' : 'Importer la facture'}
+          </span>
+          <span className="min-w-0 truncate text-muted">
+            {facture ? facture.name : 'PDF ou photo, 15 Mo max.'}
+          </span>
+        </label>
+
+        <p className="eyebrow mt-6">3. La formule</p>
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          {plans.map((p) => (
+            <button
+              type="button"
+              key={p.code}
+              onClick={() => setPlan(p.code)}
+              className={`rounded-full px-5 py-2.5 text-sm font-bold transition ${
+                plan === p.code
+                  ? 'bg-accent text-on-accent'
+                  : 'border border-line bg-surface text-navy hover:bg-canvas'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <button className="btn" disabled={!pret || busy}>
+            {busy ? 'Création…' : 'Générer le lien'}
+          </button>
+          {!pret && !busy && (
+            <span className="text-sm text-muted">Il manque {manque.join(', ')}.</span>
+          )}
+        </div>
+        {erreur && <p className="mt-3 text-sm font-bold text-accent">{erreur}</p>}
+
+        {nouveau && (
+          <div className="mt-5 rounded-xl bg-success-bg/70 p-4 text-sm">
+            <b className="text-success">Lien créé et copié.</b> Envoie-le au client : il s'ouvre
+            une seule fois et expire au bout de 14 jours.
+            <span className="mt-2 block break-all font-bold text-navy">{linkFor(nouveau)}</span>
+          </div>
+        )}
+      </form>
+
+      <h2 className="mt-8 text-lg">Mes liens</h2>
+      <div className="mt-3 grid gap-2.5">
+        {invites.map((i) => {
+          const expired = new Date(i.expires_at) < new Date()
+          return (
+            <div key={i.token} className="card flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-3.5 text-sm">
+              <div className="min-w-0 flex-1">
+                <b className="block truncate text-navy">{i.label || '—'}</b>
+                <span className="block truncate text-muted">
+                  {[libellePlan(i.plan_code), i.client_email, i.client_telephone].filter(Boolean).join(' · ')}
+                </span>
+              </div>
+              {i.used_at ? (
+                <span className="pill pill-success">✓ utilisé</span>
+              ) : expired ? (
+                <span className="pill pill-muted">expiré</span>
+              ) : (
+                <>
+                  <span className="pill pill-accent">en attente</span>
+                  <button onClick={() => copy(i.token)} className="font-bold text-accent hover:underline">
+                    {copied === i.token ? '✓ copié' : 'Copier le lien'}
+                  </button>
+                </>
+              )}
+            </div>
+          )
+        })}
+        {!invites.length && (
+          <p className="card px-5 py-6 text-center text-sm text-muted">Aucun lien pour l'instant.</p>
+        )}
       </div>
     </>
   )
