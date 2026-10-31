@@ -428,7 +428,7 @@ function VenteInvitations() {
             className="sr-only"
             onChange={choisirFacture}
           />
-          <span className={`font-bold ${facture ? 'text-success' : 'text-accent'}`}>
+          <span className={`flex-none whitespace-nowrap font-bold ${facture ? 'text-success' : 'text-accent'}`}>
             {facture ? '✓ Facture jointe' : 'Importer la facture'}
           </span>
           <span className="min-w-0 truncate text-muted">
