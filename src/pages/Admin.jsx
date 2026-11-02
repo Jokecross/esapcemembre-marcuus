@@ -91,15 +91,24 @@ function Invitations({ admin }) {
   const [label, setLabel] = useState('')
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(null)
+  // L'administrateur général (Martin) vérifie les factures des closers et
+  // envoie la vente dans le CRM. La base le vérifie aussi.
+  const [general, setGeneral] = useState(false)
+  const [aVerifier, setAVerifier] = useState(false)
+  const [traite, setTraite] = useState(null)
+
+  useEffect(() => {
+    if (admin) supabase.rpc('est_admin_general').then(({ data }) => setGeneral(data === true))
+  }, [admin])
 
   async function load() {
     const [{ data: p }, { data: i }] = await Promise.all([
       supabase.from('plans').select('code, label, rank').order('rank'),
       supabase
         .from('invites')
-        .select('token, plan_code, label, created_at, expires_at, used_at, created_by, client_email, client_telephone, facture_path')
+        .select('token, plan_code, label, created_at, expires_at, used_at, created_by, client_prenom, client_nom, client_email, client_telephone, facture_path, verif, verif_motif')
         .order('created_at', { ascending: false })
-        .limit(50),
+        .limit(200),
     ])
     setPlans(p || [])
     setInvites(i || [])
@@ -133,6 +142,26 @@ function Invitations({ admin }) {
       await load()
       copy(data.token)
     }
+  }
+
+  async function envoyer(i) {
+    const montant = i.plan_code === 'annuel' ? 'Annuel, 250 $' : 'Mensuel, 200 $'
+    if (!window.confirm(`Envoyer la vente de ${i.label} (${montant}) dans le CRM ?`)) return
+    setTraite(i.token)
+    const { error } = await supabase.rpc('valider_vente', { p_token: i.token })
+    setTraite(null)
+    if (error) return window.alert(error.message)
+    await load()
+  }
+
+  async function refuser(i) {
+    const motif = window.prompt(`Refuser la vente de ${i.label} ? Le lien sera désactivé.\n\nMotif (facultatif, visible par le closer) :`, '')
+    if (motif === null) return
+    setTraite(i.token)
+    const { error } = await supabase.rpc('refuser_vente', { p_token: i.token, p_motif: motif })
+    setTraite(null)
+    if (error) return window.alert(error.message)
+    await load()
   }
 
   function linkFor(token) {
@@ -180,20 +209,30 @@ function Invitations({ admin }) {
 
       <PromptJ0 />
 
+      {admin && (
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          <Tab active={!aVerifier} onClick={() => setAVerifier(false)}>Toutes</Tab>
+          <Tab active={aVerifier} onClick={() => setAVerifier(true)}>
+            À vérifier ({invites.filter((x) => x.verif === 'a_verifier').length})
+          </Tab>
+        </div>
+      )}
+
       <div className="card mt-5 overflow-x-auto">
-        <table className="w-full min-w-[720px] text-left text-sm">
+        <table className="w-full min-w-[900px] text-left text-sm">
           <thead className="border-b border-line text-xs uppercase tracking-wider text-muted">
             <tr>
               <th className="px-5 py-3 font-extrabold">Pour</th>
               <th className="px-5 py-3 font-extrabold">Formule</th>
               {admin && <th className="px-5 py-3 font-extrabold">Client</th>}
               {admin && <th className="px-5 py-3 font-extrabold">Par</th>}
+              {admin && <th className="px-5 py-3 font-extrabold">Vérification</th>}
               <th className="px-5 py-3 font-extrabold">État</th>
               <th className="px-5 py-3 font-extrabold">Lien</th>
             </tr>
           </thead>
           <tbody>
-            {invites.map((i) => {
+            {invites.filter((x) => !aVerifier || x.verif === 'a_verifier').map((i) => {
               const expired = new Date(i.expires_at) < new Date()
               return (
                 <tr key={i.token} className="border-b border-line last:border-0">
@@ -215,6 +254,38 @@ function Invitations({ admin }) {
                       {[equipe[i.created_by]?.first_name, equipe[i.created_by]?.last_name]
                         .filter(Boolean)
                         .join(' ') || '—'}
+                    </td>
+                  )}
+                  {admin && (
+                    <td className="px-5 py-3">
+                      {i.verif === 'a_verifier' ? (
+                        general ? (
+                          <div className="flex flex-col items-start gap-1.5">
+                            <button
+                              onClick={() => envoyer(i)}
+                              disabled={traite === i.token}
+                              className="whitespace-nowrap rounded-full bg-success px-3.5 py-1.5 text-xs font-bold text-white transition hover:brightness-105 disabled:opacity-50"
+                            >
+                              Envoyer dans le CRM
+                            </button>
+                            <button
+                              onClick={() => refuser(i)}
+                              disabled={traite === i.token}
+                              className="text-xs font-bold text-muted hover:text-accent hover:underline disabled:opacity-50"
+                            >
+                              Refuser
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="pill pill-accent">À vérifier</span>
+                        )
+                      ) : i.verif === 'validee' ? (
+                        <span className="pill pill-success">✓ Dans le CRM</span>
+                      ) : i.verif === 'refusee' ? (
+                        <span className="pill pill-muted" title={i.verif_motif || ''}>Refusée</span>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
                     </td>
                   )}
                   <td className="px-5 py-3">
@@ -243,7 +314,7 @@ function Invitations({ admin }) {
             })}
             {!invites.length && (
               <tr>
-                <td colSpan={admin ? 6 : 4} className="px-5 py-6 text-center text-muted">
+                <td colSpan={admin ? 7 : 4} className="px-5 py-6 text-center text-muted">
                   Aucune invitation pour l'instant.
                 </td>
               </tr>
@@ -299,7 +370,7 @@ function VenteInvitations() {
       supabase.from('plans').select('code, label, rank').order('rank'),
       supabase
         .from('invites')
-        .select('token, plan_code, label, client_email, client_telephone, created_at, expires_at, used_at')
+        .select('token, plan_code, label, client_email, client_telephone, created_at, expires_at, used_at, verif, verif_motif')
         .eq('created_by', s.session.user.id)
         .order('created_at', { ascending: false })
         .limit(100),
@@ -480,12 +551,19 @@ function VenteInvitations() {
           return (
             <div key={i.token} className="card flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-3.5 text-sm">
               <div className="min-w-0 flex-1">
-                <b className="block truncate text-navy">{i.label || '—'}</b>
+                <b className="block truncate text-navy">
+                  {i.label || '—'}
+                  {i.verif === 'validee' && <span className="ml-2 text-xs font-bold text-success">✓ vente validée</span>}
+                </b>
                 <span className="block truncate text-muted">
                   {[libellePlan(i.plan_code), i.client_email, i.client_telephone].filter(Boolean).join(' · ')}
                 </span>
               </div>
-              {i.used_at ? (
+              {i.verif === 'refusee' ? (
+                <span className="pill pill-muted" title={i.verif_motif || ''}>
+                  Refusée{i.verif_motif ? ` : ${i.verif_motif}` : ''}
+                </span>
+              ) : i.used_at ? (
                 <span className="pill pill-success">✓ utilisé</span>
               ) : expired ? (
                 <span className="pill pill-muted">expiré</span>
