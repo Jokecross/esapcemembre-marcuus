@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase.js'
 import Icone from './Icone.jsx'
+import BlocPrompt from './BlocPrompt.jsx'
 import { APP, MARQUE, OFFRE, OUTIL } from '../lib/marque'
 
 const TOTAL = 4
@@ -21,12 +22,14 @@ const TOTAL = 4
 export default function GuideBienvenue({ etat, onFini }) {
   const [etape, setEtape] = useState(Math.min(etat.etape || 0, TOTAL - 1))
 
-  const avancer = useCallback((suivante, promptRecu) => {
-    setEtape(suivante)
-    supabase.rpc('guide_avancer', {
+  // La base a le dernier mot : sans capture, elle refuse de passer le jour 0.
+  const avancer = useCallback(async (suivante, promptRecu) => {
+    const { error } = await supabase.rpc('guide_avancer', {
       p_etape: suivante,
       p_prompt_recu: promptRecu ?? null,
     })
+    if (error) return
+    setEtape(suivante)
   }, [])
 
   async function terminer() {
@@ -41,14 +44,7 @@ export default function GuideBienvenue({ etat, onFini }) {
           <Compteur etape={etape} />
 
           {etape === 0 && <Bienvenue prenom={etat.prenom} onSuivant={() => avancer(1)} />}
-          {etape === 1 && (
-            <Prompt
-              prompt={etat.prompt_j0}
-              reponse={etat.prompt_recu}
-              preuveFaite={etat.preuve_faite}
-              onSuivant={(recu) => avancer(2, recu)}
-            />
-          )}
+          {etape === 1 && <JourZero prompt={etat.prompt_j0} onSuivant={() => avancer(2)} />}
           {etape === 2 && <Workshop onSuivant={() => avancer(3)} />}
           {etape === 3 && <Video lecons={etat.lecons_intro || []} onFini={terminer} />}
         </div>
@@ -98,8 +94,8 @@ function Bienvenue({ prenom, onSuivant }) {
       </p>
 
       <p className="mt-3 text-[15px] leading-relaxed">
-        Ce guide prend deux minutes. Il te montre par où commencer, te redonne le premier
-        prompt de ton {APP}, et te fait regarder la vidéo qui ouvre le programme.
+        Ce guide prend quelques minutes. Il te fait créer la base de ton {APP}, te montre
+        par où continuer, et te fait regarder la vidéo qui ouvre le programme.
         Ensuite, tout l'espace est à toi.
       </p>
 
@@ -110,196 +106,203 @@ function Bienvenue({ prenom, onSuivant }) {
   )
 }
 
-/* ---------- 2. Le prompt du jour 0 ---------- */
+/* ---------- 2. Ton jour 0 ----------
+   L'élève crée la base de son app dans Base44, puis dépose une capture.
+   Sans capture, pas de suite : le bouton reste grisé, et la base refuse
+   de toute façon d'avancer (guide_avancer). Les textes viennent du
+   back-office (workshop_reglages.parcours.j0). */
 
-function Prompt({ prompt, reponse, preuveFaite, onSuivant }) {
-  const [recu, setRecu] = useState(reponse)
-  const [copie, setCopie] = useState(false)
-  const [preuve, setPreuve] = useState(!!preuveFaite)
+const FORMATS = ['png', 'jpg', 'jpeg', 'webp', 'heic']
+const TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif']
+
+function JourZero({ prompt, onSuivant }) {
+  const [t, setT] = useState(null)
+  const [preuve, setPreuve] = useState(undefined) // undefined = on regarde
+  const [apercu, setApercu] = useState(null)
+  const [nomFichier, setNomFichier] = useState('')
   const [envoi, setEnvoi] = useState(false)
   const [erreur, setErreur] = useState('')
+  const [survol, setSurvol] = useState(false)
+  const [indice, setIndice] = useState(false)
+  const [suite, setSuite] = useState(false)
   const champ = useRef(null)
 
-  function copier() {
-    // execCommand d'abord : il passe sans demander d'autorisation, là où
-    // l'API moderne peut rester bloquée selon le navigateur.
-    const zone = document.createElement('textarea')
-    zone.value = prompt
-    zone.style.position = 'fixed'
-    zone.style.left = '-9999px'
-    document.body.appendChild(zone)
-    zone.select()
-    let ok = false
-    try {
-      ok = document.execCommand('copy')
-    } catch {
-      ok = false
-    }
-    document.body.removeChild(zone)
-    if (!ok && navigator.clipboard) navigator.clipboard.writeText(prompt).catch(() => {})
-    setCopie(true)
-    setTimeout(() => setCopie(false), 2200)
-  }
+  useEffect(() => {
+    supabase
+      .from('workshop_reglages')
+      .select('parcours')
+      .eq('id', 1)
+      .maybeSingle()
+      .then(({ data }) => setT(data?.parcours?.j0 || {}))
+  }, [])
 
-  // La capture part dans le même seau que les preuves du programme :
-  // mêmes règles, et l'équipe la retrouve au même endroit.
+  // Revenu plus tard : l'étape est déjà validée, sa capture s'affiche.
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: s }) => {
+      const { data } = await supabase
+        .from('preuves')
+        .select('file_path, file_name')
+        .eq('member_id', s.session.user.id)
+        .maybeSingle()
+      if (!data) return setPreuve(null)
+      setPreuve(data)
+      setNomFichier(data.file_name || '')
+      const { data: u } = await supabase.storage.from('preuves').createSignedUrl(data.file_path, 3600)
+      if (u?.signedUrl && !/\.hei[cf]$/i.test(data.file_path)) setApercu(u.signedUrl)
+    })
+  }, [])
+
   async function deposer(fichier) {
-    if (!fichier) return
+    if (!fichier || envoi) return
     setErreur('')
-    if (!fichier.type.startsWith('image/')) {
-      return setErreur('Dépose une image : une capture d\'écran ou une photo.')
-    }
-    if (fichier.size > 10 * 1024 * 1024) {
-      return setErreur('Image trop lourde : 10 Mo maximum.')
-    }
+    setIndice(false)
+    const ext = (fichier.name.split('.').pop() || '').toLowerCase()
+    const typeOk = TYPES.includes(fichier.type) || (!fichier.type && FORMATS.includes(ext))
+    if (!FORMATS.includes(ext) && !typeOk) return setErreur(t?.erreur_format)
+    if (fichier.size > 10 * 1024 * 1024) return setErreur(t?.erreur_format)
 
     setEnvoi(true)
-    const { data: s } = await supabase.auth.getSession()
-    const membre = s.session.user.id
-    const ext = (fichier.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')
-    const chemin = `${membre}/jour0-${Date.now()}.${ext}`
-
-    const { error: envoiErreur } = await supabase.storage
-      .from('preuves')
-      .upload(chemin, fichier, { contentType: fichier.type })
-    if (envoiErreur) {
+    try {
+      const { data: s } = await supabase.auth.getSession()
+      const membre = s.session.user.id
+      const chemin = `${membre}/jour0-${Date.now()}.${FORMATS.includes(ext) ? ext : 'jpg'}`
+      const { error: e1 } = await supabase.storage
+        .from('preuves')
+        .upload(chemin, fichier, { contentType: fichier.type || (ext === 'heic' ? 'image/heic' : undefined) })
+      if (e1) throw e1
+      const { error: e2 } = await supabase.from('preuves').upsert(
+        {
+          member_id: membre,
+          file_path: chemin,
+          file_name: fichier.name,
+          taille: fichier.size,
+          statut: 'deposee',
+          motif: null,
+        },
+        { onConflict: 'member_id' },
+      )
+      if (e2) throw e2
+      setPreuve({ file_path: chemin, file_name: fichier.name })
+      setNomFichier(fichier.name)
+      // Le HEIC ne s'affiche pas dans la plupart des navigateurs : on montre son nom.
+      setApercu(/\.hei[cf]$/i.test(fichier.name) ? null : URL.createObjectURL(fichier))
+    } catch {
+      setErreur(t?.erreur_envoi)
+    } finally {
       setEnvoi(false)
-      return setErreur(`L'envoi a échoué : ${envoiErreur.message}`)
+      if (champ.current) champ.current.value = ''
     }
-
-    const { error: dbErreur } = await supabase.from('preuves').upsert(
-      {
-        member_id: membre,
-        file_path: chemin,
-        file_name: fichier.name,
-        taille: fichier.size,
-        statut: 'deposee',
-        motif: null,
-      },
-      { onConflict: 'member_id' },
-    )
-    setEnvoi(false)
-    if (dbErreur) return setErreur(`Enregistrement impossible : ${dbErreur.message}`)
-    setPreuve(true)
   }
 
-  const bloque = recu === null || recu === undefined || (recu === false && !preuve)
+  async function continuer() {
+    if (!preuve || suite) return
+    setSuite(true)
+    try {
+      await onSuivant()
+    } finally {
+      setSuite(false)
+    }
+  }
+
+  if (!t || preuve === undefined) return <p className="mt-6 text-sm text-muted">Chargement…</p>
 
   return (
     <>
-      <h1 className="mt-5 text-[26px] leading-tight sm:text-3xl">Ton premier prompt</h1>
+      <h1 className="mt-5 text-[25px] leading-tight sm:text-[28px]">{t.titre}</h1>
+      <p className="mt-3.5 text-[15px] leading-relaxed">{t.intro}</p>
 
-      <p className="mt-4 text-[15px] leading-relaxed">
-        Pendant ton appel, un membre de l'équipe devait te faire coller un{' '}
-        <b className="text-navy">premier prompt dans {OUTIL}</b> : celui qui construit ton{' '}
-        {APP}, ton outil pour préparer ton Black Friday.
-      </p>
+      <ol className="mt-5 space-y-3">
+        {(t.etapes || []).map((e, i) => (
+          <li key={i} className="flex gap-3">
+            <span className="grid h-7 w-7 flex-none place-items-center rounded-full bg-accent-pastel font-title text-[13px] font-extrabold text-accent">
+              {i + 1}
+            </span>
+            <span className="pt-0.5 text-[14.5px] leading-relaxed text-navy">{e}</span>
+          </li>
+        ))}
+      </ol>
 
-      <p className="mt-4 font-title font-bold text-navy">Tu l'as bien fait ?</p>
+      <p className="mt-4 rounded-xl bg-canvas px-4 py-3 text-[13.5px] leading-relaxed text-ink">{t.note}</p>
 
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <Choix actif={recu === true} onClick={() => setRecu(true)}>
-          Oui, je l'ai déjà fait
-        </Choix>
-        <Choix actif={recu === false} onClick={() => setRecu(false)}>
-          Non, je ne l'ai pas fait
-        </Choix>
-      </div>
+      <BlocPrompt texte={prompt || ''} libelle={t.bouton_copie} titre="Le prompt du jour 0" />
 
-      {recu === false && (
-        <div className="mt-5 rounded-2xl border-[1.5px] border-accent/60 bg-canvas p-5">
-          <p className="text-[15px] leading-relaxed">
-            On le fait maintenant, ça prend cinq minutes. Ouvre{' '}
-            <b className="text-navy">{OUTIL}</b>, crée une nouvelle application, colle ce
-            prompt en entier dans le chat et envoie-le. Tu n'as rien à modifier.
-          </p>
-          <textarea
-            readOnly
-            value={prompt || ''}
-            spellCheck={false}
-            className="mt-4 h-44 w-full resize-y rounded-xl border border-line-strong bg-surface p-3
-                       font-mono text-xs leading-relaxed text-navy"
-          />
-          <button onClick={copier} className="btn-ghost mt-3 w-full">
-            {copie ? 'Copié ✓' : 'Copier le prompt'}
-          </button>
-
-          <div className="mt-5 border-t border-line pt-5">
-            <p className="font-title font-bold text-navy">Puis montre-nous ton {APP}</p>
-            <p className="mt-1.5 text-sm leading-relaxed">
-              Quand {OUTIL} a fini de construire, fais une capture d'écran de ton {APP} et
-              dépose-la ici. C'est elle qui ouvre la suite.
-            </p>
-
-            <input
-              ref={champ}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => deposer(e.target.files?.[0])}
-            />
-
-            {preuve ? (
-              <p className="mt-3 rounded-xl bg-success-bg p-3.5 text-sm font-semibold text-success">
-                ✓ Capture reçue. Tu peux continuer.
-              </p>
+      {/* La capture */}
+      <input
+        ref={champ}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/heic,image/heif,.heic,.heif"
+        className="sr-only"
+        onChange={(e) => deposer(e.target.files?.[0])}
+      />
+      {preuve ? (
+        <div className="mt-6 rounded-2xl border border-success/30 bg-success-bg p-4">
+          <div className="flex items-center gap-3.5">
+            {apercu ? (
+              <img src={apercu} alt="Ta capture" className="h-16 w-16 flex-none rounded-lg object-cover ring-1 ring-success/30" />
             ) : (
+              <span className="grid h-16 w-16 flex-none place-items-center rounded-lg bg-surface text-success ring-1 ring-success/30">
+                <Icone nom="valide" taille={24} />
+              </span>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-[14.5px] font-bold text-success">{t.capture_ok}</p>
+              {nomFichier && <p className="truncate text-[12.5px] text-success/80">{nomFichier}</p>}
               <button
+                type="button"
                 onClick={() => champ.current?.click()}
                 disabled={envoi}
-                className="btn-ghost mt-3 w-full"
+                className="mt-1 text-[13px] font-bold text-navy underline underline-offset-2 disabled:opacity-50"
               >
-                {envoi ? 'Envoi…' : 'Déposer ma capture'}
+                {envoi ? 'Envoi…' : t.changer}
               </button>
-            )}
-
-            {erreur && <p className="mt-2 text-sm font-semibold text-red-600">{erreur}</p>}
+            </div>
           </div>
         </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => champ.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault()
+            setSurvol(true)
+          }}
+          onDragLeave={() => setSurvol(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setSurvol(false)
+            deposer(e.dataTransfer.files?.[0])
+          }}
+          disabled={envoi}
+          className={`mt-6 flex w-full flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed px-5 py-8 text-center transition ${
+            survol ? 'border-accent bg-accent-pastel' : 'border-line-strong bg-canvas hover:border-accent/60'
+          }`}
+        >
+          <Icone nom="document" taille={26} className="text-accent" />
+          <b className="font-title text-[15.5px] text-navy">{envoi ? 'Envoi…' : t.zone}</b>
+          <span className="text-[13px] text-muted">{t.zone_sous}</span>
+          <span className="text-[11.5px] text-muted">PNG, JPG, WEBP ou HEIC · 10 Mo max.</span>
+        </button>
       )}
+      {erreur && <p className="mt-2.5 text-sm font-semibold text-red-600">{erreur}</p>}
 
-      {recu === true && (
-        <p className="mt-5 rounded-2xl bg-success-bg p-4 text-sm font-semibold text-success">
-          Parfait. Garde ton {APP} ouvert : c'est lui que tu vas enrichir chaque jour.
-        </p>
-      )}
-
-      <button onClick={() => onSuivant(recu)} disabled={bloque} className="btn mt-7 w-full">
-        Suivant
-      </button>
-      {bloque && (
-        <p className="mt-3 text-center text-xs text-muted">
-          {recu === false
-            ? 'Dépose ta capture pour continuer.'
-            : 'Réponds à la question pour continuer.'}
-        </p>
-      )}
-    </>
-  )
-}
-
-function Choix({ actif, onClick, children }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={actif}
-      className={`flex items-center gap-3 rounded-2xl border-[1.5px] px-4 py-3.5 text-left
-                  font-bold transition ${
-                    actif
-                      ? 'border-accent bg-accent-pastel text-accent'
-                      : 'border-line bg-surface text-navy hover:border-line-strong'
-                  }`}
-    >
-      <span
-        className={`grid h-5 w-5 flex-none place-items-center rounded-full border-2 ${
-          actif ? 'border-accent' : 'border-line-strong'
-        }`}
+      {/* Un bouton désactivé ne reçoit ni survol ni toucher : l'enveloppe, si. */}
+      <div
+        className="mt-7"
+        title={preuve ? undefined : t.bloque}
+        onPointerDown={() => !preuve && setIndice(true)}
+        onMouseEnter={() => !preuve && setIndice(true)}
+        onMouseLeave={() => setIndice(false)}
       >
-        {actif && <span className="h-2.5 w-2.5 rounded-full bg-accent" />}
-      </span>
-      {children}
-    </button>
+        <button
+          onClick={continuer}
+          disabled={!preuve || envoi || suite}
+          className="btn w-full py-4 text-[15px] uppercase tracking-wide"
+        >
+          {suite ? 'En cours…' : t.bouton_final}
+        </button>
+      </div>
+      {!preuve && indice && <p className="mt-2.5 text-center text-[13px] font-semibold text-accent">{t.bloque}</p>}
+    </>
   )
 }
 

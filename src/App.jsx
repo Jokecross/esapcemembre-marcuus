@@ -7,7 +7,7 @@ import Lesson from './pages/Lesson.jsx'
 import Admin from './pages/Admin.jsx'
 import Invite from './pages/Invite.jsx'
 import Outils from './pages/Outils.jsx'
-import Workshop from './pages/Workshop.jsx'
+import Workshop, { JourPage, SosPage } from './pages/Workshop.jsx'
 import BandeauWorkshop from './components/BandeauWorkshop.jsx'
 import Coquille from './components/Coquille.jsx'
 import GuideBienvenue from './components/GuideBienvenue.jsx'
@@ -123,6 +123,8 @@ export default function App() {
           <Route path="/lecon/:lessonId" element={<Lesson />} />
           <Route path="/outils" element={<Outils />} />
           <Route path="/workshop" element={<Workshop />} />
+          <Route path="/workshop/jour/:n" element={<JourPage />} />
+          <Route path="/workshop/sos" element={<SosPage />} />
           <Route
             path="/admin"
             element={equipe ? <Admin role={member.role} /> : <Navigate to="/" replace />}

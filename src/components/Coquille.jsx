@@ -14,7 +14,7 @@ import { MARQUE, OFFRE } from '../lib/marque'
  */
 const ENTREES = [
   { to: '/', nom: 'accueil', libelle: 'Accueil', court: 'Accueil', tour: 'accueil' },
-  { to: '/workshop', nom: 'outil', libelle: 'Ton workshop', court: 'Workshop', tour: 'workshop' },
+  { to: '/workshop', nom: 'outil', libelle: 'Mon Cockpit Black Friday', court: 'Cockpit', tour: 'workshop' },
   { to: '/outils', nom: 'ressources', libelle: 'Outils et ressources', court: 'Outils', tour: 'outils' },
 ]
 
