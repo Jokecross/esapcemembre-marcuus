@@ -29,6 +29,13 @@ export function lecteurUrl(input) {
   const tella = texte.match(/tella\.tv\/video\/([A-Za-z0-9_-]{8,})/i)
   if (tella) return `https://www.tella.tv/video/${tella[1]}/embed`
 
+  // YouTube : vidéo, live ou lien raccourci. La vidéo doit être publique ou
+  // non répertoriée, et autoriser l'intégration.
+  const yt = texte.match(
+    /(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:[^#]*&)?v=|live\/|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i,
+  )
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}?rel=0`
+
   const player = texte.match(/player\.vimeo\.com\/video\/(\d+)(?:[?&]h=([A-Za-z0-9]+))?/)
   if (player) return vimeo(player[1], player[2])
 
@@ -374,7 +381,7 @@ function Lesson({ lesson: l, onChange }) {
         </span>
       ) : l.vimeo_url ? (
         <span className="rounded-full bg-success-bg px-3 py-1 text-xs font-bold text-success">
-          ✓ {/drive\.google/.test(l.vimeo_url) ? 'Google Drive' : /loom/.test(l.vimeo_url) ? 'Loom' : /tella/.test(l.vimeo_url) ? 'Tella' : 'Vimeo'}
+          ✓ {/drive\.google/.test(l.vimeo_url) ? 'Google Drive' : /loom/.test(l.vimeo_url) ? 'Loom' : /tella/.test(l.vimeo_url) ? 'Tella' : /youtube/.test(l.vimeo_url) ? 'YouTube' : 'Vimeo'}
         </span>
       ) : (
         <span className="rounded-full bg-canvas px-3 py-1 text-xs font-bold text-muted">
@@ -471,7 +478,7 @@ function Lesson({ lesson: l, onChange }) {
         <div className="flex w-full gap-2">
           <input
             className="field flex-1"
-            placeholder="Colle le lien Vimeo, Loom, Tella ou Google Drive"
+            placeholder="Colle le lien YouTube, Vimeo, Loom, Tella ou Google Drive"
             value={vimeo}
             onChange={(e) => setVimeo(e.target.value)}
             autoFocus

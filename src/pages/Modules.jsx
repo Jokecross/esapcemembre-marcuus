@@ -45,7 +45,7 @@ export default function Modules({ member }) {
   const raison =
     etat && !etat.equipe && !etat.dispense && etat.jour < etat.jour_deblocage
       ? `S'ouvre au jour ${etat.jour_deblocage} de ton workshop`
-      : 'Pas encore ouvert'
+      : 'Inclus dans la formule annuelle'
   const faits = parcours.filter((m) => m.completion >= 1).length
   const termine = parcours.length > 0 && faits === parcours.length
   const avancement = parcours.length ? faits / parcours.length : 0
