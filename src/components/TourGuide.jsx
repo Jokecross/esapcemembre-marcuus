@@ -18,7 +18,7 @@ const ARRETS = [
     cle: 'accueil',
     titre: 'Ton programme',
     texte:
-      "C'est ici que vivent les modules vidéo de ton programme : les deux premiers sont déjà ouverts, le reste s'ouvre au jour 3 de ton workshop. Tout en bas, tes vidéos bonus (TikTok Shop, etc.) sont débloquées dès maintenant : c'est du plus, à regarder en complément.",
+      "C'est ici que vivent les vidéos de ton programme : tout ce que ta formule contient est ouvert dès maintenant.",
   },
   {
     cle: 'workshop',

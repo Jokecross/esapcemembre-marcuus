@@ -329,12 +329,10 @@ function Workshop({ onSuivant }) {
       </p>
 
       <div className="mt-5 rounded-2xl border-[1.5px] border-accent/60 bg-canvas p-5">
-        <p className="font-title font-bold text-navy">Les trois premiers jours comptent double</p>
+        <p className="font-title font-bold text-navy">Tes vidéos sont déjà ouvertes</p>
         <p className="mt-1.5 text-[15px] leading-relaxed">
-          Au <b className="text-navy">jour 3</b>, tous les modules de ta formule se débloquent
-          d'un coup. En attendant,{' '}
-          <b className="text-navy">tes deux premiers modules sont déjà ouverts</b> : tu peux
-          commencer dès ce soir.
+          Tout ce que ta formule contient est accessible{' '}
+          <b className="text-navy">dès aujourd'hui</b> : tu peux commencer dès ce soir.
         </p>
       </div>
 

@@ -108,7 +108,7 @@ function Reglages({ reglages, onChange }) {
           </span>
           <input
             type="number"
-            min="1"
+            min="0"
             max="7"
             className="field mt-2"
             value={form.jour_deblocage}
