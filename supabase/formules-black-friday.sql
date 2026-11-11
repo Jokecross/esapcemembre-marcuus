@@ -32,7 +32,7 @@ begin
   select id into m_master from public.modules where title = 'Masterclass Black Friday';
   if m_master is null then
     insert into public.modules (position, title, description, is_intro, is_bonus)
-    values (1, 'Masterclass Black Friday', 'La vidéo de la masterclass Black Friday de Marcuus (50 min).', false, false)
+    values ((select coalesce(max(position), 0) + 1 from public.modules), 'Masterclass Black Friday', 'La vidéo de la masterclass Black Friday de Marcuus (50 min).', false, false)
     returning id into m_master;
   end if;
   if not exists (select 1 from public.lessons where module_id = m_master) then
@@ -44,27 +44,35 @@ begin
   select id into m_copify1 from public.modules where title like 'Module Copify 1%';
   if m_copify1 is null then
     insert into public.modules (position, title, description, is_intro, is_bonus)
-    values (2, 'Module Copify 1 : trouver le bon produit Black Friday', 'Trouver le bon produit à vendre pour le Black Friday.', false, false)
+    values ((select coalesce(max(position), 0) + 1 from public.modules), 'Module Copify 1 : trouver le bon produit Black Friday', 'Trouver le bon produit à vendre pour le Black Friday.', false, false)
     returning id into m_copify1;
   end if;
 
   select id into m_micro from public.modules where title like 'Bonus : liste de micro-influenceurs%';
   if m_micro is null then
     insert into public.modules (position, title, description, is_intro, is_bonus)
-    values (3, 'Bonus : liste de micro-influenceurs', 'Une liste de micro-influenceurs à contacter pour ton produit.', false, false)
+    values ((select coalesce(max(position), 0) + 1 from public.modules), 'Bonus : liste de micro-influenceurs', 'Une liste de micro-influenceurs à contacter pour ton produit.', false, false)
     returning id into m_micro;
   end if;
 
   -- Le module des lives existe déjà (module 1) : il prend le nom du tableau.
   select id into m_lives from public.modules where title in ('Lives Ibrahim', 'Bonus : replays des 21 lives du défi avec Ibra');
-  update public.modules set position = 4, title = 'Bonus : replays des 21 lives du défi avec Ibra' where id = m_lives;
+  update public.modules set title = 'Bonus : replays des 21 lives du défi avec Ibra' where id = m_lives;
 
   select id into m_copify2 from public.modules where title like 'Module Copify 2%';
   if m_copify2 is null then
     insert into public.modules (position, title, description, is_intro, is_bonus)
-    values (5, 'Module Copify 2 : lancer un produit et générer le site Shopify', 'Lancer ton produit et générer ton site Shopify.', false, false)
+    values ((select coalesce(max(position), 0) + 1 from public.modules), 'Module Copify 2 : lancer un produit et générer le site Shopify', 'Lancer ton produit et générer ton site Shopify.', false, false)
     returning id into m_copify2;
   end if;
+
+  -- L'ordre du tableau. Chaque position est unique : on passe d'abord par des
+  -- positions libres, pour ne jamais en prendre une déjà occupée.
+  update public.modules set position = 1000 + case id
+      when m_master then 1 when m_copify1 then 2 when m_micro then 3 when m_lives then 4 when m_copify2 then 5 end
+   where id in (m_master, m_copify1, m_micro, m_lives, m_copify2);
+  update public.modules set position = position + 1000 where position between 1 and 5 and id not in (m_master, m_copify1, m_micro, m_lives, m_copify2);
+  update public.modules set position = position - 1000 where id in (m_master, m_copify1, m_micro, m_lives, m_copify2);
 
   -- 3. Qui voit quoi : on repart du tableau, formule par formule.
   delete from public.plan_modules where module_id in (m_master, m_copify1, m_micro, m_lives, m_copify2);
