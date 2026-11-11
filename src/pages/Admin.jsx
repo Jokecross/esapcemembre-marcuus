@@ -145,7 +145,8 @@ function Invitations({ admin }) {
   }
 
   async function envoyer(i) {
-    const montant = i.plan_code === 'annuel' ? 'Annuel, 250 $' : 'Mensuel, 200 $'
+    // Les montants imposés par le CRM (12b-builder-annuel.sql, 11/11/2026).
+    const montant = i.plan_code === 'builder_annuel' ? 'Builder annuel, 450 $' : i.plan_code === 'annuel' ? 'Starter annuel, 250 $' : 'Builder mensuel, 200 $'
     if (!window.confirm(`Envoyer la vente de ${i.label} (${montant}) dans le CRM ?`)) return
     setTraite(i.token)
     const { error } = await supabase.rpc('valider_vente', { p_token: i.token })
