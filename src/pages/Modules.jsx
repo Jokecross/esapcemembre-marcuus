@@ -25,7 +25,7 @@ export default function Modules({ member }) {
     // côté base : rien à recalculer ici.
     supabase.rpc('my_modules').then(({ data }) => {
       setModules(data || [])
-      const suite = (data || []).filter((m) => !m.is_intro && !m.is_bonus)
+      const suite = (data || []).filter((m) => !m.is_intro && !m.is_bonus && m.lesson_count > 0)
       const prochain = suite.find((m) => m.unlocked && m.completion < 1)
       setOuvert((avant) => avant ?? prochain?.id ?? suite[0]?.id ?? null)
     })
@@ -38,7 +38,10 @@ export default function Modules({ member }) {
   if (!modules) return <p className="text-muted">Chargement du programme…</p>
 
   const intros = modules.filter((m) => m.is_intro)
-  const parcours = modules.filter((m) => !m.is_intro && !m.is_bonus)
+  // Un module sans vidéo ni fichier (Copify, liste d'influenceurs…) s'affiche
+  // « Bientôt disponible » et ne compte pas dans l'avancement.
+  const programme = modules.filter((m) => !m.is_intro && !m.is_bonus)
+  const parcours = programme.filter((m) => m.lesson_count > 0)
   const bonus = modules.filter((m) => m.is_bonus)
   // Pourquoi un module est fermé : le jour 3 pas encore atteint, ou un
   // module que la formule ne contient pas.
@@ -139,7 +142,7 @@ export default function Modules({ member }) {
         )}
 
         <div className="mt-4 flex flex-col gap-3">
-          {parcours.map((m, i) => (
+          {programme.map((m, i) => (
             <CarteModule
               key={m.id}
               id={`module-${m.id}`}
@@ -227,6 +230,20 @@ function TuileChiffre({ titre, valeur, total }) {
 function CarteModule({ id, module: m, numero, raison, ouvert, onToggle }) {
   const part = Number(m.completion) || 0
   const fini = part >= 1
+
+  if (!(m.lesson_count > 0)) {
+    return (
+      <div id={id} className="card flex items-center gap-3.5 p-4 sm:p-[18px_20px]">
+        <span className="grid h-[38px] w-[38px] flex-none place-items-center rounded-xl bg-canvas font-title text-sm font-extrabold text-muted">
+          {numero}
+        </span>
+        <span className="min-w-0 flex-1">
+          <b className="block font-title text-[15px] font-extrabold text-navy">{m.title}</b>
+          <span className="text-[13px] text-muted">Bientôt disponible</span>
+        </span>
+      </div>
+    )
+  }
 
   if (!m.unlocked) {
     return (
